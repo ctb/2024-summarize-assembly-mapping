@@ -57,7 +57,7 @@ class MetagenomeInfo:
         self.assembly_f_weighted = intersect_weighted_sum / total_weighted_sum
 
         sig_mapped = os.path.join(atta_dir, f'{self.metag_acc}.x.ma.fq.gz.sig')
-        ma_sig = sourmash_args.load_one_signature(sigfile, ksize=self.ksize)
+        ma_sig = sourmash_args.load_one_signature(sig_mapped, ksize=self.ksize)
         print(f"% k-mers in reads mapped to assembly: {self.metag_sig.contained_by(ma_sig)*100:.1f}%")
         self.assembly_f_readmapped = self.metag_sig.contained_by(ma_sig)
 

@@ -38,11 +38,7 @@ class GatherInfo:
         sum_weighted_found = row['sum_weighted_found'] 
         total_weighted_hashes = row['total_weighted_hashes']
         # oops, this is the same as: print(df['f_unique_weighted'].sum())
-<<<<<<< Updated upstream
         print(f"for {self.metag_acc} ({gather_csv}):")
-=======
-        print(f"for {self.metag_acc}:")
->>>>>>> Stashed changes
         print(f"total ref k-mers found (abund): {sum_weighted_found / total_weighted_hashes * 100:.1f}")
         print(f"total ref k-mers found (flat): {df['f_unique_to_query'].sum() * 100:.1f}")
         self.n_matches = len(df)

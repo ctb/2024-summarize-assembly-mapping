@@ -38,7 +38,11 @@ class GatherInfo:
         sum_weighted_found = row['sum_weighted_found'] 
         total_weighted_hashes = row['total_weighted_hashes']
         # oops, this is the same as: print(df['f_unique_weighted'].sum())
+<<<<<<< Updated upstream
         print(f"for {self.metag_acc} ({gather_csv}):")
+=======
+        print(f"for {self.metag_acc}:")
+>>>>>>> Stashed changes
         print(f"total ref k-mers found (abund): {sum_weighted_found / total_weighted_hashes * 100:.1f}")
         print(f"total ref k-mers found (flat): {df['f_unique_to_query'].sum() * 100:.1f}")
         self.n_matches = len(df)
@@ -49,9 +53,8 @@ class GatherInfo:
 def main(argv):
     p = argparse.ArgumentParser(argv)
     p.add_argument('csvs', nargs='+')
-    p.add_argument('-o', '--output-csv', help='output summary CSV here',
-                   required=True)
     p.add_argument('-t', '--threshold-bp', type=int, default=0)
+    p.add_argument('-o', '--output-csv', help='output summary CSV here')
     
     args = p.parse_args()
 
@@ -67,11 +70,13 @@ def main(argv):
             print(f"error reading from '{gather_csv}', IGNORING.")
             continue
 
-    with open(args.output_csv, 'w', newline='') as fp:
-        w = csv.writer(fp)
-        w.writerow(GatherInfo.headers)
-        for rr in results:
-            w.writerow(rr)
+    if args.output_csv:
+        print(f"writing results CSV to '{args.output_csv}'")
+        with open(args.output_csv, 'w', newline='') as fp:
+            w = csv.writer(fp)
+            w.writerow(GatherInfo.headers)
+            for rr in results:
+                w.writerow(rr)
 
 
 if __name__ == '__main__':

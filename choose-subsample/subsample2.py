@@ -46,6 +46,8 @@ def main():
     with open(args.output_subsampled, 'w', newline='') as fp:
         fieldnames.append('subsampled_on')
         w = csv.DictWriter(fp, fieldnames=fieldnames)
+        w.writeheader()
+
         for subset_name, members in subset_options.items():
             subsample = random.choices(list(members), k=args.choose_num)
             assert len(subsample) == args.choose_num

@@ -50,9 +50,10 @@ def main():
 
         for subset_name, members in subset_options.items():
             subsample = random.choices(list(members), k=args.choose_num)
-            assert len(subsample) == args.choose_num
+            if len(set(subsample)) < args.choose_num:
+                print(f"WARNING: only got {len(set(subsample))} accs for {subset_name}")
 
-            for acc in subsample:
+            for acc in set(subsample):
                 row = summary_by_accession[acc]
                 new_row = dict(row)
                 new_row['subsampled_on'] = subset_name

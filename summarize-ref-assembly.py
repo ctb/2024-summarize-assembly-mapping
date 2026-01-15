@@ -9,11 +9,13 @@ import argparse
 import pandas
 import sourmash
 from sourmash import sourmash_args
+from sourmash import minhash
 
 class MetagenomeInfo:
     headers = ["accession", "assembly_f_unweighted", "assembly_f_weighted",
                "assembly_f_readmapped", "assembly_f_readmapped_w",
-               "ref_f_unweighted", "ref_f_weighted", "f_reads_mapped"]
+               "ref_f_unweighted", "ref_f_weighted", "f_reads_mapped",
+               "assembly_refmap_isect_w"]
                
     def __init__(self, metag_acc, *, ksize=31, grist_dir, assembly_dir):
         self.metag_acc = metag_acc
@@ -24,11 +26,13 @@ class MetagenomeInfo:
         self.metag_sig_path = os.path.join(grist_dir, "sigs",
                                            f"{self.metag_acc}.trim.sig.zip")
         self.metag_sig = sourmash_args.load_one_signature(self.metag_sig_path, ksize=self.ksize)
+        self.gather_matches_mh = None
     
 
     def calc(self):
         "Calculate all the numbers."
         print(f'for accession {self.metag_acc}:')
+        self.load_gather_matches(self.grist_dir)
         self.calc_assembly_stuff(self.assembly_dir)
         self.calc_ref_based_kmer_stuff(self.grist_dir)
         self.calc_mapping_stuff(self.grist_dir)
@@ -85,6 +89,13 @@ class MetagenomeInfo:
         print(f"total ref k-mers found (abund): {self.ref_f_weighted * 100:.1f} (ref_f_weighted)")
         print(f"total ref k-mers found (flat): {self.ref_f_unweighted * 100:.1f} (ref_f_unweighted)")
 
+        assembly_mh = self.assembly_sig.minhash
+        isect_mh = minhash.flatten_and_intersect_scaled(self.gather_matches_mh,
+                                                        assembly_mh)
+        isect_weighted = self.metag_sig.minhash.contained_by_weighted(isect_mh)
+        self.assembly_refmap_isect_w = isect_weighted
+        print(f"overlap between ref/assembly, weighted {self.assembly_refmap_isect_w*100:.1f}% (assembly_refmap_isect_w)")
+
     def calc_mapping_stuff(self, grist_dir):
         leftover_csv = os.path.join(grist_dir, 'leftover',
                                     f"{self.metag_acc}.summary.csv")
@@ -99,6 +110,19 @@ class MetagenomeInfo:
         f_mapped = total_mapped_reads / total_reads
         print(f"fraction of reads that mapped: {f_mapped*100:.1f}% (f_mapped)")
         self.f_reads_mapped = f_mapped
+
+    def load_gather_matches(self, grist_dir):
+        matches_zip = os.path.join(grist_dir,
+                                   f'gather/{self.metag_acc}.matches.sig.zip')
+        matches_mh = None
+        for ss in sourmash.load_file_as_signatures(matches_zip):
+            if matches_mh is None:
+                matches_mh = ss.minhash.copy_and_clear()
+
+            matches_mh += ss.minhash
+
+        self.gather_matches_mh = matches_mh
+
 
 def main(argv):
     p = argparse.ArgumentParser(argv)

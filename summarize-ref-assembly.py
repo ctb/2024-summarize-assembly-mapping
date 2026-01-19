@@ -5,6 +5,11 @@ import json
 import csv
 import sys
 import argparse
+import yaml
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
 
 import pandas
 import sourmash
@@ -15,7 +20,9 @@ class MetagenomeInfo:
     headers = ["accession", "assembly_f_unweighted", "assembly_f_weighted",
                "assembly_f_readmapped", "assembly_f_readmapped_w",
                "ref_f_unweighted", "ref_f_weighted", "f_reads_mapped",
-               "assembly_refmap_isect_w"]
+               "assembly_refmap_isect_w",
+               "yaml_n_bases", "yaml_n_reads", "yaml_kmers",
+               "yaml_known_hashes", "yaml_unknown_hashes", "yaml_total_hashes", ]
                
     def __init__(self, metag_acc, *, ksize=31, grist_dir, assembly_dir):
         self.metag_acc = metag_acc
@@ -110,6 +117,13 @@ class MetagenomeInfo:
         f_mapped = total_mapped_reads / total_reads
         print(f"fraction of reads that mapped: {f_mapped*100:.1f}% (f_mapped)")
         self.f_reads_mapped = f_mapped
+
+        summary_file = os.path.join(grist_dir, f'{self.metag_acc}.info.yaml')
+        with open(summary_file, 'rb') as fp:
+            summary_d = yaml.load(fp, Loader=Loader)
+        for key in summary_d:
+            attr = f'yaml_{key}'
+            setattr(self, attr, summary_d[key])
 
     def load_gather_matches(self, grist_dir):
         matches_zip = os.path.join(grist_dir,

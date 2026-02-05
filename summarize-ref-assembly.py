@@ -16,13 +16,26 @@ import sourmash
 from sourmash import sourmash_args
 from sourmash import minhash
 
+# add:
+# * size of metagenome (metag_weighted)
+# we have:
+# * assembly_refmap_isect_w
+# * assembly_f_readmapped_w
+# * assembly_f_weighted
+
 class MetagenomeInfo:
     headers = ["accession", "assembly_f_unweighted", "assembly_f_weighted",
                "assembly_f_readmapped", "assembly_f_readmapped_w",
                "ref_f_unweighted", "ref_f_weighted", "f_reads_mapped",
                "assembly_refmap_isect_w",
                "yaml_n_bases", "yaml_n_reads", "yaml_kmers",
-               "yaml_known_hashes", "yaml_unknown_hashes", "yaml_total_hashes", ]
+               "yaml_known_hashes", "yaml_unknown_hashes", "yaml_total_hashes",
+               'w_isect_all',
+               'w_isect_matches',
+               'w_no_isect',
+               'w_isect_mapassem',
+               'w_mapassem_only',
+               'w_map_only']
                
     def __init__(self, metag_acc, *, ksize=31, grist_dir, assembly_dir):
         self.metag_acc = metag_acc
@@ -85,6 +98,42 @@ class MetagenomeInfo:
         # calculate weighted version.
         self.assembly_f_readmapped_w = self.metag_sig.contained_by_weighted(ma_sig)
         print(f"% k-mers in reads mapped to assembly (weighted): {self.assembly_f_readmapped_w*100:.1f}% (assembly_f_readmapped_w)")
+
+        ## intersections (may be redundant with some of the above, but,
+        ## redone here for simplicity/clarity)
+        metag_weighted_mh = self.metag_sig.minhash
+        metag_mh = metag_weighted_mh.flatten()
+        mapassem_mh = ma_sig.minhash.flatten()
+        assem_mh = assembly_mh.flatten()
+        refmap_mh = self.gather_matches_mh.flatten()
+
+        isect_all = (metag_mh
+                     .intersection(mapassem_mh)
+                     .intersection(assem_mh)
+                     .intersection(refmap_mh))
+        isect_matches = metag_mh.intersection(refmap_mh)
+
+        all_hashes = set(metag_mh.hashes)
+        all_hashes -= set(mapassem_mh.hashes)
+        all_hashes -= set(assem_mh.hashes)
+        all_hashes -= set(refmap_mh.hashes)
+        no_isect = metag_mh.copy_and_clear()
+        no_isect.add_many(all_hashes)
+
+        isect_mapassem = (metag_mh
+                          .intersection(mapassem_mh)
+                          .intersection(assem_mh))
+        ma_only = metag_mh.intersection(mapassem_mh)
+        map_only = (metag_mh
+                    .intersection(mapassem_mh)
+                    .intersection(refmap_mh))
+
+        self.w_isect_all = isect_all.inflate(metag_weighted_mh).sum_abundances
+        self.w_isect_matches = isect_matches.inflate(metag_weighted_mh).sum_abundances
+        self.w_no_isect = no_isect.inflate(metag_weighted_mh).sum_abundances
+        self.w_isect_mapassem = isect_mapassem.inflate(metag_weighted_mh).sum_abundances
+        self.w_mapassem_only = ma_only.inflate(metag_weighted_mh).sum_abundances
+        self.w_map_only = map_only.inflate(metag_weighted_mh).sum_abundances
 
     def calc_ref_based_kmer_stuff(self, grist_dir):
         gather_csv = os.path.join(grist_dir, "gather", f"{self.metag_acc}.gather.csv.gz")

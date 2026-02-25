@@ -6,6 +6,7 @@ import csv
 import sys
 import argparse
 import yaml
+import pprint
 try:
     from yaml import CLoader as Loader, CDumper as Dumper
 except ImportError:
@@ -15,6 +16,63 @@ import pandas
 import sourmash
 from sourmash import sourmash_args
 from sourmash import minhash
+from itertools import chain, combinations
+
+
+# https://docs.python.org/3/library/itertools.html
+def powerset(iterable, *, start=2):
+    "powerset([1,2,3]) → () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+    s = list(iterable)
+    return chain.from_iterable(combinations(s, r) for r in range(start, len(s)+1))
+
+def isect_all_sigs(siglist):
+    get_name = lambda x: [ss.name for ss in x]
+    
+    # check: all names are distinct
+    assert len(set(get_name(siglist))) == len(siglist)
+
+    # make a powerset, all combinations
+    orig_pset = [ list(x) for x in powerset(siglist, start=1) ]
+    orig_names = [ get_name(x) for x in orig_pset ]
+
+    # sort most combinations to fewest
+    pset = sorted(orig_pset, key=lambda x: -len(x))
+
+    # walk through, calculating intersections and tracking them.
+    # no hash should appear in more than one set.
+    subtract_me = set()
+    isects = []
+    names_to_hashes = {}
+    for n, combo in enumerate(pset):
+        combo = list(combo)
+        combo_name = get_name(combo)
+        ss = combo.pop()
+        hashes = set(ss.minhash.hashes) - subtract_me
+
+        while combo and hashes:
+            ss = combo.pop()
+            hashes.intersection_update(ss.minhash.hashes)
+
+        # track hashes by combination name so we can re-order later.
+        names_to_hashes[tuple(combo_name)] = hashes
+        subtract_me.update(hashes)
+
+    # use leftover ss to get a minhash :)
+    blank_mh = ss.minhash.copy_and_clear()
+
+    # return list in order of original powerset;
+    # convert hashes to minhash objects
+    combos = []
+    names = []
+    for name in orig_names:
+        hashes = names_to_hashes[tuple(name)]
+        names.append(name)
+        mh = blank_mh.copy_and_clear().flatten()
+        mh.add_many(hashes)
+        combos.append(mh)
+
+    return names, combos
+
 
 # add:
 # * size of metagenome (metag_weighted)
@@ -99,41 +157,56 @@ class MetagenomeInfo:
         self.assembly_f_readmapped_w = self.metag_sig.contained_by_weighted(ma_sig)
         print(f"% k-mers in reads mapped to assembly (weighted): {self.assembly_f_readmapped_w*100:.1f}% (assembly_f_readmapped_w)")
 
-        ## intersections (may be redundant with some of the above, but,
-        ## redone here for simplicity/clarity)
+        gather_sig = sourmash.SourmashSignature(self.gather_matches_mh,
+                                                name=self.metag_sig.name+'.gather')
+        siglist = [self.metag_sig, ma_sig, self.assembly_sig, gather_sig]
+
+        names, isects = isect_all_sigs(siglist)
+
+        sizes = [ len(x) for x in isects ]
+        #pprint.pprint(list(zip(range(0, len(names)), names, sizes)))
+
+        # restore:
         metag_weighted_mh = self.metag_sig.minhash
-        metag_mh = metag_weighted_mh.flatten()
-        mapassem_mh = ma_sig.minhash.flatten()
-        assem_mh = assembly_mh.flatten()
-        refmap_mh = self.gather_matches_mh.flatten()
+        isects = [ mh.inflate(metag_weighted_mh) for mh in isects ]
+        sizes = [ mh.sum_abundances for mh in isects ]
 
-        isect_all = (metag_mh
-                     .intersection(mapassem_mh)
-                     .intersection(assem_mh)
-                     .intersection(refmap_mh))
-        isect_matches = metag_mh.intersection(refmap_mh)
+        assert sum(sizes) == metag_weighted_mh.sum_abundances, (sum(sizes), metag_weighted_mh.sum_abundances)
 
-        all_hashes = set(metag_mh.hashes)
-        all_hashes -= set(mapassem_mh.hashes)
-        all_hashes -= set(assem_mh.hashes)
-        all_hashes -= set(refmap_mh.hashes)
-        no_isect = metag_mh.copy_and_clear()
-        no_isect.add_many(all_hashes)
+        # [(0, ['DRR014782'], 300177),
+        self.w_no_isect = sizes[0]
+        # (1, ['DRR014782.ma'], 0),
+        # sizes[1]: map assem only, always zero
+        # (2, ['DRR014782.assembly'], 766),
+        # sizes[2]: novel assem k-mers only, close to 0
+        # (3, ['DRR014782.gather'], 1317562),
+        # sizes[3]: stuff from ref genomes that is not in metagenome, ignore
+        # (4, ['DRR014782', 'DRR014782.ma'], 107373),
+        self.w_mapassem_only = sizes[4]
+        # (5, ['DRR014782', 'DRR014782.assembly'], 3),
+        self.w_assem_only = sizes[5] # metag+assembly only, close to zero
+        # (6, ['DRR014782', 'DRR014782.gather'], 250384),
+        self.w_map_only = sizes[6] # metag+gather only
+        # (7, ['DRR014782.ma', 'DRR014782.assembly'], 0),
+        # sizes[7]: ma and assembly only, zero
+        # (8, ['DRR014782.ma', 'DRR014782.gather'], 0),
+        # sizes[8]: ma and gather only, zero
+        # (9, ['DRR014782.assembly', 'DRR014782.gather'], 947),
+        # sizes[9]: assembly and gather only, close to zero
+        # (10, ['DRR014782', 'DRR014782.ma', 'DRR014782.assembly'], 34747),
+        # sizes[10]: metag + map assem + assembly
+        self.w_isect_mapassem = sizes[10] # metag + mapassem + assembly
+        # (11, ['DRR014782', 'DRR014782.ma', 'DRR014782.gather'], 33249),
+        self.w_isect_matches = sizes[11] # metag + mapassem + gather
+        # (12, ['DRR014782', 'DRR014782.assembly', 'DRR014782.gather'], 5),
+        # sizes[12]: metag, assembly, gather, close to 0
+        # (13, ['DRR014782.ma', 'DRR014782.assembly', 'DRR014782.gather'], 0),
+        # sizes[13]: map assem, assembly, gather, no metagenome, 0
+        # (14,
+        # ['DRR014782', 'DRR014782.ma', 'DRR014782.assembly', 'DRR014782.gather'],
+        # 229312)]
 
-        isect_mapassem = (metag_mh
-                          .intersection(mapassem_mh)
-                          .intersection(assem_mh))
-        ma_only = metag_mh.intersection(mapassem_mh)
-        map_only = (metag_mh
-                    .intersection(mapassem_mh)
-                    .intersection(refmap_mh))
-
-        self.w_isect_all = isect_all.inflate(metag_weighted_mh).sum_abundances
-        self.w_isect_matches = isect_matches.inflate(metag_weighted_mh).sum_abundances
-        self.w_no_isect = no_isect.inflate(metag_weighted_mh).sum_abundances
-        self.w_isect_mapassem = isect_mapassem.inflate(metag_weighted_mh).sum_abundances
-        self.w_mapassem_only = ma_only.inflate(metag_weighted_mh).sum_abundances
-        self.w_map_only = map_only.inflate(metag_weighted_mh).sum_abundances
+        self.w_isect_all = sizes[14]
 
     def calc_ref_based_kmer_stuff(self, grist_dir):
         gather_csv = os.path.join(grist_dir, "gather", f"{self.metag_acc}.gather.csv.gz")
